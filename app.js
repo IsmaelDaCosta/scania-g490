@@ -1,0 +1,198 @@
+const tasks = [
+  {id:"tacho", name:"Descargar tacógrafo", zone:"Lavado y Descargas", minor:true, major:true},
+  {id:"card", name:"Descargar tarjeta conductor", zone:"Lavado y Descargas", minor:true, major:true},
+  {id:"wheels", name:"Lavado de llantas", zone:"Lavado y Descargas", minor:false, major:true},
+  {id:"trailerWash", name:"Lavado interior del remolque", zone:"Lavado y Descargas", minor:false, major:true},
+  {id:"brakes", name:"Control de frenos", zone:"Lavado y Descargas", minor:false, major:true, special:"brakes"},
+  {id:"trailerGrease", name:"Engrase remolque", zone:"Engrase y Niveles", minor:true, major:true},
+  {id:"engineOil", name:"Revisar aceite motor", zone:"Engrase y Niveles", minor:true, major:true},
+  {id:"cabinFilter", name:"Limpiar filtro cabina", zone:"Engrase y Niveles", minor:true, major:true},
+  {id:"steeringGrease", name:"Engrase eje dirección", zone:"Engrase y Niveles", minor:false, major:true},
+  {id:"fifthWheel", name:"Engrase plato", zone:"Engrase y Niveles", minor:false, major:true},
+  {id:"hydraulicOil", name:"Revisar aceite hidráulico", zone:"Engrase y Niveles", minor:false, major:true},
+  {id:"coolant", name:"Revisar refrigerante", zone:"Engrase y Niveles", minor:false, major:true},
+  {id:"washer", name:"Revisar limpiaparabrisas", zone:"Engrase y Niveles", minor:false, major:true},
+  {id:"airFilter", name:"Limpiar filtro aire", zone:"Engrase y Niveles", minor:false, major:true}
+];
+
+const storeKey = "scaniaG490.v1";
+let state = JSON.parse(localStorage.getItem(storeKey) || "null") || {
+  km: 0,
+  nextType: "minor",
+  active: {},
+  history: [],
+  brakes: [],
+  vacation: null
+};
+
+function save(){ localStorage.setItem(storeKey, JSON.stringify(state)); }
+function isoWeek(d=new Date()){
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+  return Math.ceil((((date - yearStart) / 86400000) + 1)/7);
+}
+function fmtDate(d=new Date()){
+  return d.toLocaleDateString("es-CH",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
+}
+function serviceLabel(){ return state.nextType === "minor" ? "Menor" : "Mayor"; }
+function suggested(task){ return state.nextType === "minor" ? task.minor : task.major; }
+function lastForTask(id){
+  return state.history.filter(h => h.tasks.includes(id)).at(-1);
+}
+function tab(name){
+  document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));
+  if(name==="home") renderHome();
+  if(name==="service") renderService();
+  if(name==="history") renderHistory();
+  if(name==="settings") renderVacation();
+}
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>tab(b.dataset.tab));
+document.getElementById("vacationBtn").onclick=()=>tab("settings");
+
+function renderHome(){
+  document.getElementById("weekLabel").textContent = `Semana ${isoWeek()}`;
+  const vac = state.vacation?.active;
+  screen.innerHTML = `
+    <div class="card">
+      <p class="eyebrow">Kilómetros actuales</p>
+      <div class="bigNumber">${state.km ? state.km.toLocaleString("de-CH") : "—"} km</div>
+      <p class="kicker">Se actualizan al finalizar cada servicio</p>
+    </div>
+    <div class="card">
+      <p class="eyebrow">Próximo servicio</p>
+      <h2>${vac ? "Vehículo fuera de servicio" : serviceLabel()}</h2>
+      <span class="badge ${state.nextType==="minor" ? "green" : ""}">${vac ? "🏖️ Vacaciones" : "Viernes · Semana " + isoWeek()}</span>
+      ${vac ? `<p class="warn">Al volver se pedirá mantenimiento mayor.</p>` : ""}
+      <button class="primary" onclick="tab('service')">${vac ? "Ver vacaciones" : "Comenzar servicio"}</button>
+    </div>
+    <div class="card">
+      <p class="eyebrow">Estado general</p>
+      ${brakeAlertSummary()}
+    </div>`;
+}
+
+function renderService(){
+  if(state.vacation?.active){
+    screen.innerHTML = `<div class="card"><h2>🏖️ Vacaciones activas</h2><p class="empty">Durante vacaciones no hay servicio. Al finalizar, toca mantenimiento mayor.</p><button class="primary" onclick="tab('settings')">Gestionar vacaciones</button></div>`;
+    return;
+  }
+  const zones = [...new Set(tasks.map(t=>t.zone))];
+  screen.innerHTML = `<h2>Servicio ${serviceLabel()}</h2><p class="eyebrow">Semana ${isoWeek()} · ${fmtDate()}</p>` + zones.map(z=>`
+    <div class="card">
+      <h3>📍 ${z}</h3>
+      ${tasks.filter(t=>t.zone===z).sort((a,b)=>suggested(b)-suggested(a)).map(t=>taskHTML(t)).join("")}
+    </div>`).join("") + `
+    <button class="primary" onclick="finishService()">Finalizar servicio</button>`;
+}
+function taskHTML(t){
+  const done = !!state.active[t.id];
+  return `<div class="task ${done?'done':''} ${suggested(t)?'suggested':'extra'}" onclick="${t.special==='brakes'?'renderBrakes()':`toggleTask('${t.id}')`}">
+    <div class="circle">✓</div>
+    <div><div class="title">${t.name}</div><small>${suggested(t) ? "Programado" : "Extra opcional"}</small></div>
+  </div>`
+}
+function toggleTask(id){
+  state.active[id] = !state.active[id];
+  save(); renderService();
+}
+
+function renderBrakes(){
+  const last = state.brakes.at(-1);
+  screen.innerHTML = `<h2>Control de frenos</h2>
+  <p class="eyebrow">Solo camión · sin remolque</p>
+  <div class="card"><h3>Eje delantero</h3><div class="grid2">
+    <input class="input" id="fdl" inputmode="numeric" pattern="[0-9]*" placeholder="Izq %" value="${last?.fdl || ""}">
+    <input class="input" id="fdr" inputmode="numeric" pattern="[0-9]*" placeholder="Der %" value="${last?.fdr || ""}">
+  </div></div>
+  <div class="card"><h3>Eje motriz</h3><div class="grid2">
+    <input class="input" id="mdl" inputmode="numeric" pattern="[0-9]*" placeholder="Izq %" value="${last?.mdl || ""}">
+    <input class="input" id="mdr" inputmode="numeric" pattern="[0-9]*" placeholder="Der %" value="${last?.mdr || ""}">
+  </div></div>
+  <button class="primary" onclick="saveBrakes()">Guardar frenos</button>
+  <button class="secondary" onclick="tab('service')">Volver</button>`;
+}
+function saveBrakes(){
+  const rec = {
+    date:new Date().toISOString().slice(0,10), week:isoWeek(),
+    fdl:+fdl.value, fdr:+fdr.value, mdl:+mdl.value, mdr:+mdr.value
+  };
+  state.brakes.push(rec);
+  state.active.brakes = true;
+  save(); renderService();
+}
+
+function finishService(){
+  const done = Object.keys(state.active).filter(k=>state.active[k]);
+  if(done.length===0 && !confirm("No has marcado ninguna tarea. ¿Guardar igualmente?")) return;
+  screen.innerHTML = `<h2>Finalizar servicio</h2>
+  <div class="card">
+    <p class="eyebrow">Kilómetros actuales</p>
+    <input class="input" id="kmInput" inputmode="numeric" pattern="[0-9]*" value="${state.km || ""}" autofocus>
+    <p class="kicker">El teclado del iPhone será numérico.</p>
+    <button class="primary" onclick="saveService()">Guardar servicio</button>
+  </div>`;
+}
+function saveService(){
+  const km = +kmInput.value;
+  if(!km){ alert("Introduce los kilómetros actuales."); return; }
+  if(state.km && km < state.km && !confirm("El kilometraje es inferior al último registrado. ¿Continuar?")) return;
+  const done = Object.keys(state.active).filter(k=>state.active[k]);
+  state.history.push({date:new Date().toISOString().slice(0,10), week:isoWeek(), km, type:state.nextType, tasks:done});
+  state.km = km;
+  state.active = {};
+  state.nextType = state.nextType === "minor" ? "major" : "minor";
+  save(); tab("home");
+}
+
+function renderHistory(){
+  const counts = {};
+  tasks.forEach(t=>counts[t.id]=0);
+  state.history.forEach(h=>h.tasks.forEach(id=>counts[id]=(counts[id]||0)+1));
+  screen.innerHTML = `<h2>Historial</h2>` + tasks.map(t=>{
+    const last = lastForTask(t.id);
+    return `<div class="card">
+      <div class="row"><div><h3>${t.name}</h3><p class="eyebrow">${t.zone}</p></div><span class="badge">${counts[t.id]||0} veces</span></div>
+      <p class="kicker">Última vez: ${last ? `Semana ${last.week} · ${last.date} · ${last.km.toLocaleString("de-CH")} km` : "Nunca"}</p>
+    </div>`
+  }).join("");
+}
+
+function renderVacation(){
+  screen.innerHTML = `<h2>Vacaciones</h2>
+  <div class="card">
+    <h3>${state.vacation?.active ? "Vacaciones activas" : "Configurar vacaciones"}</h3>
+    <p class="eyebrow">Al volver, el ciclo se reinicia con mantenimiento mayor.</p>
+    <div class="row"><span>Inicio</span><input type="date" id="vacStart" value="${state.vacation?.start || ""}"></div>
+    <div class="row"><span>Fin</span><input type="date" id="vacEnd" value="${state.vacation?.end || ""}"></div>
+    <button class="primary" onclick="activateVacation()">Activar vacaciones</button>
+    <button class="secondary" onclick="finishVacation()">Finalizar vacaciones</button>
+  </div>`;
+}
+function activateVacation(){
+  state.vacation = {active:true,start:vacStart.value,end:vacEnd.value};
+  save(); tab("home");
+}
+function finishVacation(){
+  state.vacation = null;
+  state.nextType = "major";
+  save(); tab("home");
+}
+
+function brakeAlertSummary(){
+  const b = state.brakes;
+  if(b.length < 2) return `<h3>🟢 Correcto</h3><p class="kicker">Aún no hay suficientes mediciones de frenos para detectar desgaste.</p>`;
+  const last = b.at(-1), prev = b.at(-2);
+  const labels = {fdl:"Delantero izq.",fdr:"Delantero der.",mdl:"Motriz izq.",mdr:"Motriz der."};
+  const alerts = Object.keys(labels).filter(k => prev[k] - last[k] >= 8);
+  const diffFront = Math.abs(last.fdl-last.fdr);
+  const diffDrive = Math.abs(last.mdl-last.mdr);
+  if(alerts.length || diffFront>=10 || diffDrive>=10){
+    return `<h3>🟠 Revisar frenos</h3><p class="warn">${alerts.map(a=>labels[a]).join(", ")} ${diffFront>=10?" Diferencia eje delantero.":""} ${diffDrive>=10?" Diferencia eje motriz.":""}</p>`;
+  }
+  return `<h3>🟢 Correcto</h3><p class="kicker">Sin desgaste anormal detectado.</p>`;
+}
+
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("service-worker.js"); }
+tab("home");

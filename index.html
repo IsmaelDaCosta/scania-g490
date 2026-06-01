@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0b0f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Scania G490" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>Scania G490</title>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow" id="weekLabel">Semana --</p>
+        <h1>Scania G490</h1>
+      </div>
+      <button class="ghost" id="vacationBtn">🏖️</button>
+    </header>
+
+    <main id="screen"></main>
+
+    <nav class="tabs">
+      <button data-tab="home" class="active">Inicio</button>
+      <button data-tab="service">Servicio</button>
+      <button data-tab="history">Historial</button>
+      <button data-tab="settings">Vacaciones</button>
+    </nav>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
